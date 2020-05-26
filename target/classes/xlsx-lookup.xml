@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ftp="http://www.mulesoft.org/schema/mule/ftp" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/ftp http://www.mulesoft.org/schema/mule/ftp/current/mule-ftp.xsd">
+	<flow name="xlsx-lookupFlow" doc:id="305facc5-4b8d-4853-91af-ba28bb787846" >
+		<scheduler doc:name="Scheduler" doc:id="d7125887-e147-438e-bdc5-1691704b54a1" >
+			<scheduling-strategy >
+				<fixed-frequency timeUnit="HOURS"/>
+			</scheduling-strategy>
+		</scheduler>
+		<set-payload value='#[%dw 2.0
+output application/xml
+---
+root: {
+	users: [
+		{
+			country: "Spain",
+			first_name:"Jórge",
+			last_name:"Jiménez",
+			department: "IT"
+		},
+		{
+			country: "Germany",
+			first_name:"Frans",
+			last_name:"Müller",
+			department: "Accöunting"
+		}
+	]
+}]' doc:name="Set XML File Example" doc:id="93b55b61-c7f4-4a3d-8f20-b508c55e8763" />
+		<set-variable value='#[readUrl("classpath://CharacterDictionary.xlsx", "application/xlsx")]' doc:name="Read Dictionary File" doc:id="818da47a-6f20-4a2f-8be0-721ea0831a08" variableName="dictionary"/>
+		<set-variable value="#[[]]" doc:name="Transformed Users Aggregator" doc:id="38b7e8a9-1301-4aef-a6d9-cb48c4669c2d" variableName="usersTransformed"/>
+		<foreach doc:name="Loop Over Users" doc:id="cc55e46f-28f8-47ee-a988-78a1e2961a81" collection="#[%dw 2.0
+output application/json
+---
+payload.root.*users]">
+			<ee:transform doc:name="Retrieve Language Based on Country from Dictionary" doc:id="c0045d83-5b0a-4dc1-ace2-44561fa29ce7">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="country_object"><![CDATA[%dw 2.0
+output application/json
+---
+(vars.dictionary."Countries" filter ((entry, index) -> entry."Country" == payload.country))[0]."Language"
+]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+			<set-variable value="#[payload]" doc:name="User Placeholder" doc:id="b711470e-4245-4742-a48c-ec325a284e13" variableName="userPlaceHolder"/>
+			<foreach doc:name="Loop Over Dictionary of Replacement Characters" doc:id="991ce644-e0dc-489f-a37b-c88b60e7742a" collection="#[%dw 2.0
+output application/json
+---
+vars.dictionary[vars.country_object]]" rootMessageVariableName="rootMessageNested">
+			<ee:transform doc:name="Replace Character in first_name and last_name" doc:id="1f8d1a4c-b37f-4a91-ba67-b2451b238d92">
+				<ee:message>
+				</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="userPlaceHolder" ><![CDATA[%dw 2.0
+output application/json
+---
+(vars.userPlaceHolder - "first_name" - "last_name" ++ {
+	first_name: vars.userPlaceHolder.first_name replace ((payload.Character)as Regex) with(payload.Replacement),
+	last_name: vars.userPlaceHolder.last_name replace ((payload.Character)as Regex) with(payload.Replacement)
+})]]></ee:set-variable>
+					</ee:variables>
+			</ee:transform>
+		</foreach>
+			<ee:transform doc:name="Append Transformed Users" doc:id="25b3813e-9de7-4988-82df-e94ca9fb762f" >
+				<ee:message >
+				</ee:message>
+				<ee:variables >
+					<ee:set-variable variableName="usersTransformed" ><![CDATA[%dw 2.0
+output application/java
+---
+vars.usersTransformed + vars.userPlaceHolder]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+		</foreach>
+		<set-payload value="#[%dw 2.0
+output application/xml
+---
+root: {
+	(vars.usersTransformed map (value, index) -&gt; {
+	user: value
+	})
+}]" doc:name="Return Transformed Payload" doc:id="4501ce53-f4f0-44f1-b81d-17dfe99d6ca8" />
+		<logger level="INFO" doc:name="Log Payload" doc:id="c67a58db-9137-4b78-9dff-78e0c048427f" message="#[payload]" />
+	</flow>
+</mule>
